@@ -48,6 +48,7 @@ def collect_images(imgs_parent):
         u = i.attrib.get("url", "").strip()
         if u:
             all_imgs.append(u)
+    # de-dupe keeping order
     seen = set(); uniq = []
     for u in all_imgs:
         if u not in seen:
@@ -91,7 +92,10 @@ def main():
         sys.exit(1)
 
     lang = cfg.get("lang", "pl")
-    out_dir = ROOT / "public"; out_dir.mkdir(parents=True, exist_ok=True)
+    max_images = int(cfg.get("max_images", 10))
+
+    out_dir = ROOT / "public"
+    out_dir.mkdir(parents=True, exist_ok=True)
     out_csv = out_dir / "feed.csv"
 
     delim = cfg.get("csv_delimiter", ",")
@@ -100,6 +104,7 @@ def main():
 
     products = root.findall(".//product")
 
+    # Base headers
     headers = [
         "id_product","id_category_default","url","price","wholesale_price","weight","unity",
         "unit_price_ratio","width","height","depth","on_sale","online_only","quantity",
@@ -111,7 +116,8 @@ def main():
         "meta_description_pl","meta_keywords_pl","meta_title_pl",
         "available_now_pl","available_later_pl",
         "category_default_pl","categories_pl",
-        "image_main","images_all",
+        "image_main"
+    ] + [f"image_{i}" for i in range(1, max_images+1)] + [
         "features_pl"
     ]
 
@@ -156,8 +162,11 @@ def main():
         cats_pl = collect_categories(p.find("./categories"), lang)
         cats_pl_str = " | ".join([c for c in cats_pl if c])
 
-        main_img, all_imgs = collect_images(p.find("./imgs"))
-        images_all_str = " ".join(all_imgs)
+        image_main, images_all = collect_images(p.find("./imgs"))
+        # Fill image columns
+        img_cols = []
+        for i in range(max_images):
+            img_cols.append(images_all[i] if i < len(images_all) else "")
 
         features_pl = collect_features(p.find("./features"), lang)
 
@@ -172,14 +181,16 @@ def main():
             meta_description_pl,meta_keywords_pl,meta_title_pl,
             available_now_pl,available_later_pl,
             cat_default_pl,cats_pl_str,
-            main_img,images_all_str,
-            features_pl
+            image_main, *img_cols, features_pl
         ])
 
     with out_csv.open("w", newline="", encoding=encoding) as f:
         w = csv.writer(f, delimiter=delim, quotechar=quotechar, quoting=csv.QUOTE_MINIMAL)
         w.writerow(headers)
         w.writerows(rows)
+
+    # small index.html for convenience
+    (out_dir / "index.html").write_text('<a href="feed.csv">feed.csv</a>', encoding="utf-8")
 
     print(f"OK: {len(rows)} rows -> {out_csv}")
 
