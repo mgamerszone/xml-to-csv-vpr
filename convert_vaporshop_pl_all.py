@@ -1,4 +1,16 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Vaporshop XML → CSV (PL-only)
+- Czyta feed z FEED_URL (env) i config z config.json
+- Normalizuje EAN: ciągi z samych zer → puste pole
+- Dodaje prefiks dostawcy do reference (SKU): domyślnie "VPR-<reference>"
+- Rozdziela zdjęcia na kolumny image_1..image_N (N z configu: max_images)
+- Usuwa HTML z description_short (zostawia też wersję HTML)
+- Tworzy public/feed.csv oraz prosty public/index.html
+Stdlib only.
+"""
+
 import os, sys, csv, json, html, re, urllib.request, xml.etree.ElementTree as ET
 from pathlib import Path
 
@@ -16,6 +28,7 @@ def text(node):
     return (node.text or "").strip() if node is not None else ""
 
 def lang_value(parent, lang_code="pl"):
+    """Zwraca tekst z <value xml:lang="...">; jeśli brak danego języka, bierze pierwszy <value>."""
     if parent is None:
         return ""
     chosen = None
@@ -77,6 +90,27 @@ def fetch_xml(url: str) -> bytes:
     with urllib.request.urlopen(req, timeout=90) as resp:
         return resp.read()
 
+def normalize_ean(e: str) -> str:
+    """Puste dla '0', '00', '000'...; w innym przypadku zwraca obcięty EAN."""
+    s = (e or "").strip()
+    return "" if re.fullmatch(r"0+", s) else s
+
+def apply_supplier_prefix(ref: str, prefix: str, sep: str) -> str:
+    """
+    Dodaje prefiks dostawcy do reference.
+    - Nie dubluje, jeśli już zaczyna się od prefiksu (ignoruje wielkość liter i '-', '_' lub spację po prefiksie).
+    - Jeśli reference puste → zostawia puste.
+    """
+    r = (ref or "").strip()
+    if not r:
+        return ""
+    pattern = r"^(?:" + re.escape(prefix) + r")(?:[-_ ]|$)"
+    if re.match(pattern, r, flags=re.I):
+        return r
+    # pozwól wyłączyć separator podając "" w configu
+    sep = sep if sep is not None else ""
+    return f"{prefix}{sep}{r}"
+
 def main():
     cfg = json.loads((ROOT / "config.json").read_text(encoding="utf-8"))
     feed_url = os.environ.get("FEED_URL")
@@ -93,6 +127,8 @@ def main():
 
     lang = cfg.get("lang", "pl")
     max_images = int(cfg.get("max_images", 10))
+    supplier_prefix = cfg.get("supplier_prefix", "VPR")
+    supplier_prefix_sep = cfg.get("supplier_prefix_sep", "-")
 
     out_dir = ROOT / "public"
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -104,7 +140,7 @@ def main():
 
     products = root.findall(".//product")
 
-    # Base headers
+    # Nagłówki
     headers = [
         "id_product","id_category_default","url","price","wholesale_price","weight","unity",
         "unit_price_ratio","width","height","depth","on_sale","online_only","quantity",
@@ -142,8 +178,11 @@ def main():
         active = text(p.find("./active"))
         manufacturer = text(p.find("./manufacturer"))
         supplier = text(p.find("./supplier"))
-        reference = text(p.find("./reference"))
-        ean = text(p.find("./ean"))
+
+        reference_raw = text(p.find("./reference"))
+        reference = apply_supplier_prefix(reference_raw, supplier_prefix, supplier_prefix_sep)
+
+        ean = normalize_ean(text(p.find("./ean")))
         upc = text(p.find("./upc"))
 
         name_pl = lang_value(p.find("./name"), lang)
@@ -163,10 +202,7 @@ def main():
         cats_pl_str = " | ".join([c for c in cats_pl if c])
 
         image_main, images_all = collect_images(p.find("./imgs"))
-        # Fill image columns
-        img_cols = []
-        for i in range(max_images):
-            img_cols.append(images_all[i] if i < len(images_all) else "")
+        img_cols = [images_all[i] if i < len(images_all) else "" for i in range(max_images)]
 
         features_pl = collect_features(p.find("./features"), lang)
 
@@ -189,7 +225,7 @@ def main():
         w.writerow(headers)
         w.writerows(rows)
 
-    # small index.html for convenience
+    # Prosty index dla wygody
     (out_dir / "index.html").write_text('<a href="feed.csv">feed.csv</a>', encoding="utf-8")
 
     print(f"OK: {len(rows)} rows -> {out_csv}")
