@@ -3,5 +3,7 @@
   "csv_quotechar": "\"",
   "encoding": "utf-8",
   "lang": "pl",
-  "max_images": 10
+  "max_images": 10,
+  "supplier_prefix": "VPR",
+  "supplier_prefix_sep": "-"
 }
