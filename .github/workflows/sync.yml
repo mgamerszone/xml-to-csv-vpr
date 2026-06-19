@@ -1,0 +1,63 @@
+name: Sync supplier stock
+
+on:
+  workflow_dispatch:
+    inputs:
+      supplier:
+        description: "Supplier to sync: all, vpr, konop, or neardark"
+        required: false
+        default: "all"
+      dry_run:
+        description: "Prepare sync without updating BaseLinker stock"
+        required: false
+        default: "0"
+  schedule:
+    - cron: "*/5 * * * *"
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        supplier: [vpr, konop, neardark]
+    steps:
+      - name: Skip non-selected supplier
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.supplier != 'all' && inputs.supplier != matrix.supplier }}
+        run: echo "Skipping ${{ matrix.supplier }}"
+
+      - name: Checkout
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.supplier == 'all' || inputs.supplier == matrix.supplier }}
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.supplier == 'all' || inputs.supplier == matrix.supplier }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Sync stock
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.supplier == 'all' || inputs.supplier == matrix.supplier }}
+        env:
+          BASELINKER_TOKEN: ${{ secrets.BASELINKER_TOKEN }}
+          VPR_FEED_URL: ${{ secrets.VPR_FEED_URL }}
+          VPR_BASELINKER_INVENTORY_ID: ${{ secrets.VPR_BASELINKER_INVENTORY_ID }}
+          VPR_BASELINKER_WAREHOUSE_ID: ${{ secrets.VPR_BASELINKER_WAREHOUSE_ID }}
+          KONOP_FEED_URL: ${{ secrets.KONOP_FEED_URL }}
+          KONOP_BASELINKER_INVENTORY_ID: ${{ secrets.KONOP_BASELINKER_INVENTORY_ID }}
+          KONOP_BASELINKER_WAREHOUSE_ID: ${{ secrets.KONOP_BASELINKER_WAREHOUSE_ID }}
+          NEARDARK_FEED_URL: ${{ secrets.NEARDARK_FEED_URL }}
+          NEARDARK_BASELINKER_INVENTORY_ID: ${{ secrets.NEARDARK_BASELINKER_INVENTORY_ID }}
+          NEARDARK_BASELINKER_WAREHOUSE_ID: ${{ secrets.NEARDARK_BASELINKER_WAREHOUSE_ID }}
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || '0' }}
+        run: python sync.py --supplier "${{ matrix.supplier }}"
+
+      - name: Upload diagnostic CSV
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.supplier == 'all' || inputs.supplier == matrix.supplier }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.supplier }}-stock-csv
+          path: data/${{ matrix.supplier }}.csv

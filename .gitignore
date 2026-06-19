@@ -1,0 +1,3 @@
+__pycache__/
+suppliers/__pycache__/
+data/*.csv
