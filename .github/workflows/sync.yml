@@ -11,8 +11,6 @@ on:
         description: "Prepare sync without updating BaseLinker stock"
         required: false
         default: "0"
-  schedule:
-    - cron: "*/5 * * * *"
 
 permissions:
   contents: read
